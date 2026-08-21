@@ -84,10 +84,12 @@ desktop.ini
 Thumbs.db
 .DS_Store
 
-# Local data - НЕ коммитим реальные Excel файлы
+# Local data - НЕ коммитим реальные файлы
 data/*.xls
-data/*.xlsx
 data/*.csv
+
+# Но разрешаем тестовый файл из ТЗ
+!data/operations.xlsx
 
 # Но оставляем .gitkeep для сохранения структуры папки
 !data/.gitkeep
