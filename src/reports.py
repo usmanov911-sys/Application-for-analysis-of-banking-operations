@@ -1,3 +1,5 @@
+"""Отчёты по транзакциям."""
+
 from __future__ import annotations
 
 import functools
@@ -9,20 +11,23 @@ from typing import Any, Callable, Optional, Union
 import pandas as pd
 
 from src import utils
+from src.logger import setup_logger
+
+logger = setup_logger("reports")
 
 REPORTS_DIR = Path("reports")
 
 
 def _write_report(filename: str, result: Any) -> None:
-    """
-    Записывает результат отчета в файл.
-    """
+    """Записывает результат отчёта в файл."""
     path = Path(filename)
 
     if not path.is_absolute():
         path = REPORTS_DIR / path
 
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Сохранение отчёта в файл: {path}")
 
     if isinstance(result, pd.DataFrame):
         result.to_json(
@@ -38,6 +43,8 @@ def _write_report(filename: str, result: Any) -> None:
             encoding="utf-8",
         )
 
+    logger.info("Отчёт сохранён")
+
 
 def save_report(
     _func: Optional[Callable] = None,
@@ -45,7 +52,7 @@ def save_report(
     filename: Optional[str] = None,
 ):
     """
-    Декоратор для отчетов.
+    Декоратор для отчётов.
 
     Использование:
 
@@ -59,7 +66,6 @@ def save_report(
     def report(...):
         ...
     """
-
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -80,9 +86,7 @@ def _prepare_df(
     transactions: Union[pd.DataFrame, list],
     date: Optional[str] = None,
 ) -> tuple[pd.DataFrame, datetime, datetime]:
-    """
-    Подготавливает DataFrame и диапазон последних 3 месяцев.
-    """
+    """Подготавливает DataFrame и диапазон последних 3 месяцев."""
     df = utils.normalize_transactions(transactions, strict=False)
 
     if date is None:
@@ -105,9 +109,9 @@ def spending_by_category(
     category: str,
     date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Траты по категории за последние 3 месяца.
-    """
+    """Траты по категории за последние 3 месяца."""
+    logger.info(f"Отчёт: траты по категории '{category}'")
+
     df, _, _ = _prepare_df(transactions, date)
 
     if df.empty:
@@ -124,7 +128,12 @@ def spending_by_category(
     spending = spending.copy()
     spending["date"] = spending[utils.DATE_COLUMN].dt.strftime("%Y-%m-%d")
 
-    result = spending.groupby("date")["amount_abs"].sum().round(2).reset_index()
+    result = (
+        spending.groupby("date")["amount_abs"]
+        .sum()
+        .round(2)
+        .reset_index()
+    )
 
     result.columns = ["date", "amount"]
 
@@ -136,9 +145,9 @@ def spending_by_weekday(
     transactions: pd.DataFrame,
     date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Средние траты по дням недели за последние 3 месяца.
-    """
+    """Средние траты по дням недели за последние 3 месяца."""
+    logger.info("Отчёт: траты по дням недели")
+
     df, _, _ = _prepare_df(transactions, date)
 
     spending = utils.get_spending_df(df)
@@ -151,9 +160,16 @@ def spending_by_weekday(
     spending["day"] = spending[utils.DATE_COLUMN].dt.normalize()
     spending["weekday"] = spending[utils.DATE_COLUMN].dt.weekday
 
-    daily = spending.groupby(["day", "weekday"], as_index=False)["amount_abs"].sum()
+    daily = (
+        spending.groupby(["day", "weekday"], as_index=False)["amount_abs"]
+        .sum()
+    )
 
-    avg = daily.groupby("weekday", as_index=False)["amount_abs"].mean().round(2)
+    avg = (
+        daily.groupby("weekday", as_index=False)["amount_abs"]
+        .mean()
+        .round(2)
+    )
 
     weekday_names = {
         0: "Monday",
@@ -176,9 +192,9 @@ def spending_by_workday(
     transactions: pd.DataFrame,
     date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Средние траты в рабочий и выходной день за последние 3 месяца.
-    """
+    """Средние траты в рабочий и выходной день за последние 3 месяца."""
+    logger.info("Отчёт: траты в рабочий/выходной день")
+
     df, _, _ = _prepare_df(transactions, date)
 
     spending = utils.get_spending_df(df)
@@ -191,13 +207,20 @@ def spending_by_workday(
     spending["day"] = spending[utils.DATE_COLUMN].dt.normalize()
     spending["weekday"] = spending[utils.DATE_COLUMN].dt.weekday
 
-    daily = spending.groupby(["day", "weekday"], as_index=False)["amount_abs"].sum()
+    daily = (
+        spending.groupby(["day", "weekday"], as_index=False)["amount_abs"]
+        .sum()
+    )
 
     daily["day_type"] = daily["weekday"].apply(
         lambda weekday: "workday" if weekday < 5 else "weekend"
     )
 
-    avg = daily.groupby("day_type", as_index=False)["amount_abs"].mean().round(2)
+    avg = (
+        daily.groupby("day_type", as_index=False)["amount_abs"]
+        .mean()
+        .round(2)
+    )
 
     avg = avg.rename(columns={"amount_abs": "avg_spent"})
 
@@ -208,14 +231,7 @@ def spending_by_workday(
             avg = pd.concat(
                 [
                     avg,
-                    pd.DataFrame(
-                        [
-                            {
-                                "day_type": day_type,
-                                "avg_spent": 0.0,
-                            }
-                        ]
-                    ),
+                    pd.DataFrame([{"day_type": day_type, "avg_spent": 0.0}]),
                 ],
                 ignore_index=True,
             )

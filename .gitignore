@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# C extensions
+*.so
+
 # Distribution / packaging
 .Python
 build/
@@ -17,13 +20,11 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# PyInstaller
-*.manifest
-*.spec
+MANIFEST
 
 # Unit test / coverage reports
 htmlcov/
@@ -35,25 +36,16 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+*.py.cover
 *.lcov
 .hypothesis/
 .pytest_cache/
-
-# Translations
-*.mo
-*.pot
-
-# Flask
-instance/
-.webassets-cache
-
-# Jupyter Notebook
-.ipynb_checkpoints
+cover/
 
 # Environments
 .env
 .envrc
-.venv/
+.venv
 env/
 venv/
 ENV/
@@ -63,21 +55,13 @@ venv.bak/
 # IDE
 .idea/
 .vscode/
-*.swp
-*.swo
-
-# Type checking
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
-
-# Linting
-.ruff_cache/
 
 # Logs
+logs/
 *.log
+
+# Reports
+reports/
 
 # OS
 desktop.ini
@@ -91,22 +75,5 @@ data/*.csv
 # Но разрешаем тестовый файл из ТЗ
 !data/operations.xlsx
 
-# Но оставляем .gitkeep для сохранения структуры папки
+# Keep data folder
 !data/.gitkeep
-
-# Отчёты (генерируются автоматически)
-reports/
-*.json
-!user_settings.json
-!package.json
-
-# Временные файлы
-tempCodeRunnerFile.py
-*.tmp
-
-# Poetry - коммитим lock файл для воспроизводимости
-# (раскомментируйте если используете poetry)
-# poetry.lock
-
-# PyPI configuration
-.pypirc
