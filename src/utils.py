@@ -1,3 +1,5 @@
+"""Утилиты для работы с транзакциями."""
+
 from __future__ import annotations
 
 import json
@@ -8,6 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
+from src.logger import setup_logger
+
+logger = setup_logger("utils")
+
+# Названия колонок
 DATE_COLUMN = "Дата операции"
 PAYMENT_DATE_COLUMN = "Дата платежа"
 CARD_COLUMN = "Номер карты"
@@ -37,9 +44,9 @@ TRANSFER_CASH_CATEGORIES = TRANSFER_CATEGORIES | CASH_CATEGORIES
 
 
 def load_user_settings(path: Union[str, Path] = "user_settings.json") -> Dict[str, Any]:
-    """
-    Загружает пользовательские настройки.
-    """
+    """Загружает пользовательские настройки."""
+    logger.info(f"Загрузка настроек из: {path}")
+
     default_settings = {
         "user_currencies": ["USD", "EUR"],
         "user_stocks": ["AAPL", "AMZN", "GOOGL", "MSFT", "TSLA"],
@@ -48,11 +55,13 @@ def load_user_settings(path: Union[str, Path] = "user_settings.json") -> Dict[st
     path = Path(path)
 
     if not path.exists():
+        logger.warning(f"Файл настроек не найден: {path}. Используются значения по умолчанию.")
         return default_settings
 
     try:
         settings = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.error(f"Ошибка при чтении настроек: {e}. Используются значения по умолчанию.")
         return default_settings
 
     if not isinstance(settings.get("user_currencies"), list):
@@ -61,13 +70,12 @@ def load_user_settings(path: Union[str, Path] = "user_settings.json") -> Dict[st
     if not isinstance(settings.get("user_stocks"), list):
         settings["user_stocks"] = default_settings["user_stocks"]
 
+    logger.info("Настройки загружены успешно")
     return {**default_settings, **settings}
 
 
 def ensure_dataframe(data: Union[pd.DataFrame, List[Dict[str, Any]]]) -> pd.DataFrame:
-    """
-    Преобразует входные данные в DataFrame.
-    """
+    """Преобразует входные данные в DataFrame."""
     if isinstance(data, pd.DataFrame):
         df = data.copy()
     else:
@@ -78,9 +86,7 @@ def ensure_dataframe(data: Union[pd.DataFrame, List[Dict[str, Any]]]) -> pd.Data
 
 
 def get_last_digits(value: Any) -> str:
-    """
-    Возвращает последние 4 цифры номера карты.
-    """
+    """Возвращает последние 4 цифры номера карты."""
     digits = re.sub(r"\D", "", str(value))
     return digits[-4:] if digits else "0000"
 
@@ -89,9 +95,9 @@ def normalize_transactions(
     data: Union[pd.DataFrame, List[Dict[str, Any]]],
     strict: bool = False,
 ) -> pd.DataFrame:
-    """
-    Приводит транзакции к единому формату.
-    """
+    """Приводит транзакции к единому формату."""
+    logger.debug("Нормализация транзакций")
+
     df = ensure_dataframe(data)
 
     if strict:
@@ -99,6 +105,7 @@ def normalize_transactions(
             column for column in REQUIRED_COLUMNS if column not in df.columns
         ]
         if missing_columns:
+            logger.error(f"Отсутствуют обязательные колонки: {missing_columns}")
             raise ValueError(f"Отсутствуют обязательные колонки: {missing_columns}")
 
     if DATE_COLUMN not in df.columns:
@@ -148,33 +155,36 @@ def normalize_transactions(
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
 
     df[CARD_COLUMN] = df[CARD_COLUMN].apply(get_last_digits)
-    df[CATEGORY_COLUMN] = (
-        df[CATEGORY_COLUMN].fillna("Без категории").astype(str).str.strip()
-    )
+    df[CATEGORY_COLUMN] = df[CATEGORY_COLUMN].fillna("Без категории").astype(str).str.strip()
     df[DESCRIPTION_COLUMN] = df[DESCRIPTION_COLUMN].fillna("").astype(str).str.strip()
 
     df = df.sort_values(DATE_COLUMN, ignore_index=True, na_position="last")
 
+    logger.debug(f"Нормализовано {len(df)} транзакций")
     return df
 
 
 def read_transactions(path: Union[str, Path]) -> pd.DataFrame:
-    """
-    Читает Excel-файл с транзакциями.
-    """
+    """Читает Excel-файл с транзакциями."""
     path = Path(path)
+    logger.info(f"Загрузка транзакций из файла: {path}")
 
     if not path.exists():
+        logger.error(f"Файл не найден: {path}")
         raise FileNotFoundError(f"Файл не найден: {path}")
 
-    df = pd.read_excel(path)
+    try:
+        df = pd.read_excel(path)
+        logger.info(f"Загружено {len(df)} записей из файла")
+    except Exception as e:
+        logger.error(f"Ошибка при чтении файла: {e}")
+        raise
+
     return normalize_transactions(df, strict=True)
 
 
 def parse_datetime(value: Union[str, datetime, pd.Timestamp]) -> datetime:
-    """
-    Разбирает дату в разных форматах.
-    """
+    """Разбирает дату в разных форматах."""
     if isinstance(value, datetime):
         return value
 
@@ -199,13 +209,12 @@ def parse_datetime(value: Union[str, datetime, pd.Timestamp]) -> datetime:
     try:
         return pd.to_datetime(value, dayfirst=True).to_pydatetime()
     except Exception as exc:
+        logger.error(f"Не удалось разобрать дату: {value}")
         raise ValueError(f"Не удалось разобрать дату: {value}") from exc
 
 
 def get_greeting(dt: Optional[datetime] = None) -> str:
-    """
-    Возвращает приветствие по времени.
-    """
+    """Возвращает приветствие по времени."""
     dt = dt or datetime.now()
     hour = dt.hour
 
@@ -220,9 +229,7 @@ def get_greeting(dt: Optional[datetime] = None) -> str:
 
 
 def get_default_range(dt: datetime) -> Tuple[datetime, datetime]:
-    """
-    Диапазон с начала месяца по входящую дату.
-    """
+    """Диапазон с начала месяца по входящую дату."""
     start = dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     return start, dt
 
@@ -230,19 +237,13 @@ def get_default_range(dt: datetime) -> Tuple[datetime, datetime]:
 def get_range_by_period(dt: datetime, period: str = "M") -> Tuple[datetime, datetime]:
     """
     Возвращает диапазон для периодов:
-    W - неделя,
-    M - месяц,
-    Y - год,
-    ALL - все данные до даты.
+    W - неделя, M - месяц, Y - год, ALL - все данные до даты.
     """
     period = period.upper()
 
     if period == "W":
         start = (dt - timedelta(days=dt.weekday())).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
+            hour=0, minute=0, second=0, microsecond=0,
         )
         return start, dt
 
@@ -257,6 +258,7 @@ def get_range_by_period(dt: datetime, period: str = "M") -> Tuple[datetime, date
     if period == "ALL":
         return datetime(1900, 1, 1, 0, 0, 0), dt
 
+    logger.error(f"Недопустимый период: {period}")
     raise ValueError("Недопустимый период. Допустимые значения: W, M, Y, ALL.")
 
 
@@ -265,9 +267,7 @@ def filter_by_date_range(
     start: Union[datetime, pd.Timestamp],
     end: Union[datetime, pd.Timestamp],
 ) -> pd.DataFrame:
-    """
-    Фильтрует DataFrame по дате.
-    """
+    """Фильтрует DataFrame по дате."""
     if df.empty:
         return df.copy()
 
@@ -275,17 +275,18 @@ def filter_by_date_range(
     end = pd.Timestamp(end)
 
     mask = (
-        df[DATE_COLUMN].notna() & (df[DATE_COLUMN] >= start) & (df[DATE_COLUMN] <= end)
+        df[DATE_COLUMN].notna()
+        & (df[DATE_COLUMN] >= start)
+        & (df[DATE_COLUMN] <= end)
     )
 
-    return df.loc[mask].copy()
+    result = df.loc[mask].copy()
+    logger.debug(f"Отфильтровано {len(result)} записей за период")
+    return result
 
 
 def get_spending_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Возвращает расходы.
-    Если есть отрицательные суммы платежа — использует их.
-    """
+    """Возвращает расходы."""
     if df.empty:
         return df.copy()
 
@@ -301,7 +302,6 @@ def get_spending_df(df: pd.DataFrame) -> pd.DataFrame:
         expenses["amount_abs"] = expenses[AMOUNT_COLUMN].abs()
         return expenses
 
-    # Запасной вариант, если в данных нет отрицательных значений.
     if PAYMENT_AMOUNT_COLUMN in df.columns and (df[PAYMENT_AMOUNT_COLUMN] > 0).any():
         expenses = df[df[PAYMENT_AMOUNT_COLUMN] > 0].copy()
         expenses["amount_abs"] = expenses[PAYMENT_AMOUNT_COLUMN].abs()
@@ -311,9 +311,7 @@ def get_spending_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_income_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Возвращает поступления.
-    """
+    """Возвращает поступления."""
     if df.empty:
         return df.copy()
 
@@ -333,9 +331,7 @@ def get_income_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def round_int(value: Any) -> int:
-    """
-    Округляет значение до целого.
-    """
+    """Округляет значение до целого."""
     try:
         value = float(value)
         if pd.isna(value):
@@ -346,9 +342,7 @@ def round_int(value: Any) -> int:
 
 
 def transaction_to_dict(row: pd.Series) -> Dict[str, Any]:
-    """
-    Преобразует строку DataFrame в словарь для JSON.
-    """
+    """Преобразует строку DataFrame в словарь для JSON."""
     date_value = row.get(DATE_COLUMN)
 
     if pd.isna(date_value):
@@ -367,9 +361,7 @@ def transaction_to_dict(row: pd.Series) -> Dict[str, Any]:
 
 
 def df_to_transactions(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    """
-    Преобразует DataFrame в список транзакций.
-    """
+    """Преобразует DataFrame в список транзакций."""
     if df.empty:
         return []
 
@@ -382,16 +374,16 @@ def aggregate_categories(
     top_n: Optional[int] = None,
     rest_label: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Агрегирует суммы по категориям.
-    """
+    """Агрегирует суммы по категориям."""
     if df.empty or "amount_abs" not in df.columns:
         return []
 
     exclude_categories = exclude_categories or set()
 
     grouped = (
-        df.groupby(CATEGORY_COLUMN)["amount_abs"].sum().sort_values(ascending=False)
+        df.groupby(CATEGORY_COLUMN)["amount_abs"]
+        .sum()
+        .sort_values(ascending=False)
     )
 
     items = []
@@ -412,19 +404,11 @@ def aggregate_categories(
         rest_sum = sum(amount for _, amount in items[top_n:])
 
     result = [
-        {
-            "category": category,
-            "amount": round_int(amount),
-        }
+        {"category": category, "amount": round_int(amount)}
         for category, amount in selected_items
     ]
 
     if rest_label and rest_sum > 0:
-        result.append(
-            {
-                "category": rest_label,
-                "amount": round_int(rest_sum),
-            }
-        )
+        result.append({"category": rest_label, "amount": round_int(rest_sum)})
 
     return result

@@ -1,0 +1,30 @@
+[flake8]
+# Максимальная длина строки
+max-line-length = 120
+
+# Папки и файлы для исключения
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    build,
+    dist,
+    *.egg-info,
+    .pytest_cache,
+    .mypy_cache,
+    .ruff_cache,
+    logs,
+    reports
+
+# Игнорируемые ошибки
+# E203 - пробел перед ':' (конфликтует с black)
+# W503 - перенос строки перед бинарным оператором
+# E501 - длина строки (уже настроена через max-line-length)
+ignore =
+    E203,
+    W503
+
+# Максимальная сложность функции
+max-complexity = 10

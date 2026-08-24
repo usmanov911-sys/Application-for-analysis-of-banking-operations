@@ -1,5 +1,8 @@
+"""Формирование JSON для веб-страниц."""
+
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -7,6 +10,9 @@ import pandas as pd
 import requests
 
 from src import utils
+from src.logger import setup_logger
+
+logger = setup_logger("views")
 
 CBR_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
 
@@ -22,12 +28,11 @@ FALLBACK_CURRENCY_RATES = {
 
 
 def fetch_currency_rates(currencies: List[str]) -> List[Dict[str, Any]]:
-    """
-    Получает курсы валют.
-    Если API недоступно, возвращает fallback-значения.
-    """
+    """Получает курсы валют. При ошибке возвращает резервные значения."""
     currencies = [str(currency).upper() for currency in currencies]
     rates = {}
+
+    logger.info(f"Запрос курсов валют: {currencies}")
 
     try:
         response = requests.get(CBR_URL, timeout=5)
@@ -49,27 +54,26 @@ def fetch_currency_rates(currencies: List[str]) -> List[Dict[str, Any]]:
 
             rates[currency] = float(FALLBACK_CURRENCY_RATES.get(currency, 100.0))
 
-    except Exception:
+        logger.info("Курсы валют получены успешно")
+
+    except Exception as e:
+        logger.warning(f"Ошибка при получении курсов валют: {e}. Используются резервные значения.")
         for currency in currencies:
             rates[currency] = float(FALLBACK_CURRENCY_RATES.get(currency, 100.0))
 
     return [
-        {
-            "currency": currency,
-            "rate": float(rates.get(currency, 100.0)),
-        }
+        {"currency": currency, "rate": float(rates.get(currency, 100.0))}
         for currency in currencies
     ]
 
 
 def fetch_stock_prices(stocks: List[str]) -> List[Dict[str, Any]]:
-    """
-    Получает цены акций.
-    Если API недоступно, возвращает fallback-значения.
-    """
+    """Получает цены акций. При ошибке возвращает резервные значения."""
     result = []
 
     headers = {"User-Agent": "Mozilla/5.0"}
+
+    logger.info(f"Запрос цен акций: {stocks}")
 
     for stock in stocks:
         stock = str(stock).upper()
@@ -87,25 +91,18 @@ def fetch_stock_prices(stocks: List[str]) -> List[Dict[str, Any]]:
             if price <= 0:
                 raise ValueError("Invalid price")
 
-        except Exception:
-            # Fallback, чтобы критерий обработки ошибок API был выполнен.
+        except Exception as e:
+            logger.warning(f"Ошибка при получении цены акции {stock}: {e}. Используется резервное значение.")
             price = round(100.0 + len(stock) * 7.77, 2)
 
-        result.append(
-            {
-                "stock": stock,
-                "price": float(price),
-            }
-        )
+        result.append({"stock": stock, "price": float(price)})
 
+    logger.info("Цены акций получены")
     return result
 
 
 def get_cards_info(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    """
-    Возвращает информацию по картам:
-    последние 4 цифры, сумма расходов, кешбэк.
-    """
+    """Возвращает информацию по картам."""
     expenses = utils.get_spending_df(df)
 
     if expenses.empty:
@@ -118,11 +115,7 @@ def get_cards_info(df: pd.DataFrame) -> List[Dict[str, Any]]:
             cards = ["0000"]
 
         return [
-            {
-                "last_digits": str(card),
-                "total_spent": 0.0,
-                "cashback": 0.0,
-            }
+            {"last_digits": str(card), "total_spent": 0.0, "cashback": 0.0}
             for card in cards
         ]
 
@@ -137,26 +130,21 @@ def get_cards_info(df: pd.DataFrame) -> List[Dict[str, Any]]:
     for card, amount in grouped.items():
         amount = float(amount)
 
-        result.append(
-            {
-                "last_digits": str(card),
-                "total_spent": round(amount, 2),
-                "cashback": round(amount / 100, 2),
-            }
-        )
+        result.append({
+            "last_digits": str(card),
+            "total_spent": round(amount, 2),
+            "cashback": round(amount / 100, 2),
+        })
 
     return result
 
 
 def get_top_transactions(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
-    """
-    Возвращает топ-5 транзакций по сумме платежа.
-    """
+    """Возвращает топ транзакций по сумме платежа."""
     if df.empty:
         return []
 
     df = df.copy()
-
     df["_sort_amount"] = df[utils.PAYMENT_AMOUNT_COLUMN].fillna(0.0)
 
     df = df.sort_values(
@@ -170,12 +158,12 @@ def get_top_transactions(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any
 def main_page(
     date_time: str,
     settings_path: Union[str, Path] = "user_settings.json",
-    transactions_path: Union[str, Path] = "data/operations.xls",
+    transactions_path: Union[str, Path] = "data/operations.xlsx",
     transactions: Optional[Union[pd.DataFrame, List[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Главная страница.
-    """
+    """Главная страница."""
+    logger.info(f"Формирование главной страницы для даты: {date_time}")
+
     dt = utils.parse_datetime(date_time)
     greeting = utils.get_greeting(dt)
 
@@ -189,7 +177,7 @@ def main_page(
 
     settings = utils.load_user_settings(settings_path)
 
-    return {
+    result = {
         "greeting": greeting,
         "cards": get_cards_info(df_range),
         "top_transactions": get_top_transactions(df_range, limit=5),
@@ -197,17 +185,20 @@ def main_page(
         "stock_prices": fetch_stock_prices(settings["user_stocks"]),
     }
 
+    logger.info("Главная страница сформирована")
+    return result
+
 
 def events_page(
     date: str,
     period: str = "M",
     settings_path: Union[str, Path] = "user_settings.json",
-    transactions_path: Union[str, Path] = "data/operations.xls",
+    transactions_path: Union[str, Path] = "data/operations.xlsx",
     transactions: Optional[Union[pd.DataFrame, List[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Страница событий.
-    """
+    """Страница событий."""
+    logger.info(f"Формирование страницы событий: дата={date}, период={period}")
+
     dt = utils.parse_datetime(date)
     dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
 
@@ -242,19 +233,12 @@ def events_page(
         expenses[utils.CATEGORY_COLUMN].isin(utils.TRANSFER_CASH_CATEGORIES)
     ]
 
-    transfers_and_cash = utils.aggregate_categories(
-        transfers_and_cash_df,
-        top_n=None,
-    )
-
-    main_income = utils.aggregate_categories(
-        incomes,
-        top_n=None,
-    )
+    transfers_and_cash = utils.aggregate_categories(transfers_and_cash_df, top_n=None)
+    main_income = utils.aggregate_categories(incomes, top_n=None)
 
     settings = utils.load_user_settings(settings_path)
 
-    return {
+    result = {
         "expenses": {
             "total_amount": total_expenses,
             "main": main_expenses,
@@ -267,3 +251,6 @@ def events_page(
         "currency_rates": fetch_currency_rates(settings["user_currencies"]),
         "stock_prices": fetch_stock_prices(settings["user_stocks"]),
     }
+
+    logger.info("Страница событий сформирована")
+    return result
